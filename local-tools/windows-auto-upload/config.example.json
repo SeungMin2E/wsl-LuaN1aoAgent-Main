@@ -1,0 +1,61 @@
+{
+  "account": "SeungMin2E",
+  "gh": "gh",
+  "quiet_seconds": 60,
+  "poll_seconds": 5,
+  "retry_seconds": 300,
+  "projects": [
+    {
+      "id": "ai-agent",
+      "enabled": true,
+      "root": "C:/Users/KSM/Desktop/Deeppoint/ai-agent",
+      "repo": "SeungMin2E/ai-agent",
+      "branch": "main",
+      "initial_commit": "8d3bf1d513017e2d2652a0ce9af2a8525636fa63",
+      "checks": [
+        [
+          "{python}",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-v"
+        ]
+      ]
+    },
+    {
+      "id": "tool-test-site",
+      "root": "C:/Users/KSM/Desktop/Deeppoint/해킹 툴 테스트 사이트",
+      "repo": "SeungMin2E/ai-agent-tool-test-site",
+      "branch": "main",
+      "initial_commit": "4d3ae387d599057f3650183faad406d40327ae0c",
+      "checks": [
+        [
+          "{python}",
+          "test_labs.py"
+        ]
+      ]
+    },
+    {
+      "id": "wsl-luan1ao-agent",
+      "enabled": true,
+      "root": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\ksm\\LuaN1aoAgent",
+      "repo": "SeungMin2E/wsl-LuaN1aoAgent-Main",
+      "branch": "main",
+      "initial_commit": "8511b03878ce3d57ea5ff3930917b12b4d4632da",
+      "checks": [
+        [
+          "wsl.exe",
+          "-d",
+          "Ubuntu-24.04",
+          "-u",
+          "ksm",
+          "--",
+          "python3",
+          "/mnt/c/Users/KSM/Desktop/Deeppoint/github-auto-upload/verify_wsl_agent.py"
+        ]
+      ]
+    }
+  ]
+}

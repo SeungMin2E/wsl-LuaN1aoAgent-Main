@@ -1,0 +1,99 @@
+diff --git a/.env.example b/.env.example
+index 5ee3f63..c09b368 100644
+--- a/.env.example
++++ b/.env.example
+@@ -56,6 +56,9 @@ LLM_API_TYPE=openai-completions
+ #EXECUTOR_SANDBOX_MODE=docker
+ #LUANNIAO_EXECUTOR_IMAGE=luanniao-executor:latest
+ #LUANNIAO_NETWORK_IMAGE=luanniao-network:latest
++# Opt-in Linux iptables compatibility for container Gateways on internal bridges.
++# Allows only frames remaining on each task bridge; Gateway scope still applies.
++#LUANNIAO_LINUX_BRIDGE_COMPAT=0
+ # Optional Chrome/Chromium executable for the workspace compatibility backend.
+ # Docker Executors use /usr/bin/chromium from LUANNIAO_EXECUTOR_IMAGE; hardened
+ # Seatbelt/Bubblewrap backends do not expose a host browser outside their boundary.
+diff --git a/src/connectivity/network-sandbox-manager.ts b/src/connectivity/network-sandbox-manager.ts
+index 8368c92..5addb22 100644
+--- a/src/connectivity/network-sandbox-manager.ts
++++ b/src/connectivity/network-sandbox-manager.ts
+@@ -98,6 +98,7 @@ export class NetworkSandboxManager {
+   private readonly captureEnvironment: string[];
+   private readonly knownTaskIds: string[];
+   private readonly hostEgressBroker: HostEgressBroker;
++  private readonly linuxBridgeCompat: boolean;
+   private hostEgressEndpoint?: HostEgressBrokerEndpoint;
+   private readonly taskNetworks = new Set<string>();
+   private authorizedScope?: string;
+@@ -132,6 +133,8 @@ export class NetworkSandboxManager {
+     this.fetcher = input.fetcher ?? fetch;
+     this.manageFlowIndex = input.manageFlowIndex ?? true;
+     this.captureEnvironment = networkCaptureDockerEnv(input.environment ?? process.env);
++    this.linuxBridgeCompat = process.platform === "linux"
++      && (input.environment ?? process.env).LUANNIAO_LINUX_BRIDGE_COMPAT === "1";
+     this.knownTaskIds = [...new Set(input.knownTaskIds ?? [])].sort();
+     this.hostEgressBroker = input.hostEgressBroker ?? new HostEgressBroker();
+   }
+@@ -893,6 +896,7 @@ export class NetworkSandboxManager {
+         throw new Error(`Refusing to reuse invalid task network ${name}`);
+       }
+       this.taskNetworks.add(taskId);
++      await this.configureTaskBridgeCompatibility(name, true);
+       return { name, subnet };
+     }
+     const created = await this.runner([
+@@ -906,9 +910,47 @@ export class NetworkSandboxManager {
+     if (created.code !== 0) throw new Error(`Failed to create task network ${name}: ${created.stderr}`);
+     this.taskNetworks.add(taskId);
+     const subnet = await this.networkSubnet(name);
++    await this.configureTaskBridgeCompatibility(name, true);
+     return { name, subnet };
+   }
+ 
++
++  /**
++   * Linux bridge netfilter applies Docker's internal-subnet DROP even to frames
++   * addressed to a container router. Admit only L2 frames staying on this task's
++   * bridge; host-routed traffic remains subject to Docker isolation, and the
++   * per-task Gateway continues enforcing scope and recording traffic.
++   */
++  private async configureTaskBridgeCompatibility(name: string, enable: boolean): Promise<void> {
++    if (!this.linuxBridgeCompat) return;
++    const inspected = await this.runner(["network", "inspect", "--format", "{{.Id}}", name]);
++    const id = inspected.stdout.trim();
++    if (inspected.code !== 0 || !/^[a-f0-9]{64}$/.test(id)) {
++      throw new Error(`Failed to inspect task bridge for Linux compatibility: ${name}`);
++    }
++    const bridge = `br-${id.slice(0, 12)}`;
++    const rule = [
++      "-i", bridge, "-o", bridge,
++      "-m", "physdev", "--physdev-is-bridged",
++      "-m", "comment", "--comment", `luanniao-task-bridge:${id.slice(0, 12)}`,
++      "-j", "ACCEPT"
++    ];
++    const command = enable
++      ? 'iptables -w 5 -C DOCKER-USER "$@" 2>/dev/null || iptables -w 5 -I DOCKER-USER 1 "$@"'
++      : 'if iptables -w 5 -C DOCKER-USER "$@" 2>/dev/null; then iptables -w 5 -D DOCKER-USER "$@"; fi';
++    const result = await this.runner([
++      "run", "--rm", "--network", "host", "--user", "0",
++      "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
++      "--security-opt", "no-new-privileges", "--read-only",
++      "--pids-limit", "32", "--memory", "64m",
++      "--entrypoint", "sh", this.image,
++      "-c", command, "luanniao-task-bridge", ...rule
++    ]);
++    if (result.code !== 0) {
++      throw new Error(`Failed to ${enable ? "install" : "remove"} Linux task bridge rule: ${result.stderr || result.stdout}`);
++    }
++  }
++
+   private async networkSubnet(name: string): Promise<string> {
+     const result = await this.runner([
+       "network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", name
+@@ -952,6 +994,7 @@ export class NetworkSandboxManager {
+       || optionalDockerLabel(rawTaskRef) !== taskId) {
+       throw new Error(`Refusing to remove unmanaged task network ${name}`);
+     }
++    await this.configureTaskBridgeCompatibility(name, false);
+     const removed = await this.runner(["network", "rm", name]);
+     if (removed.code !== 0) throw new Error(`Failed to remove task network ${name}: ${removed.stderr || removed.stdout}`);
+     this.taskNetworks.delete(taskId);
