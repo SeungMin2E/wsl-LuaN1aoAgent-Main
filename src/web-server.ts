@@ -1,3 +1,4 @@
+import { settleRunCleanup } from "./web-run-cleanup.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
@@ -1545,7 +1546,10 @@ async function handleStartRun(request: IncomingMessage, response: ServerResponse
       .catch((error: unknown) => {
         console.error(`[web run failed] ${activeRun.runtimeInput}:`, error instanceof Error ? error.message : error);
       })
-      .finally(() => cleanupRun(activeRun));
+      .finally(() => settleRunCleanup(
+        () => cleanupRun(activeRun),
+        (error) => console.error(`[web run cleanup failed] ${activeRun.runtimeInput}:`, error instanceof Error ? error.message : error)
+      ));
 
     await sendJson(response, {
       runtimeDir: activeRun.runtimeInput,

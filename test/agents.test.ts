@@ -809,3 +809,15 @@ test("planner terminal tool validates graph semantics before terminating", async
   );
   assert.equal(validated, true);
 });
+
+
+test("small context compaction leaves input capacity and a useful recent tail", () => {
+  for (const window of [8_192, 16_384, 32_768]) {
+    const settings = SettingsManager.inMemory({ compaction: agentCompactionSettings(window) }).getCompactionSettings();
+    assert.equal(settings.enabled, true);
+    assert.ok(window - settings.reserveTokens >= window / 2);
+    assert.ok(settings.keepRecentTokens >= 512);
+    assert.ok(settings.keepRecentTokens <= window / 8);
+    assert.ok(settings.reserveTokens + settings.keepRecentTokens < window);
+  }
+});

@@ -70,6 +70,15 @@ export function agentCompactionSettings(contextWindow: number | undefined): {
     };
   }
   const window = Math.floor(contextWindow);
+  // A 32K minimum reserve consumed almost the entire window for local models,
+  // repeatedly compacting to a one-token tail. Keep useful input and a bounded
+  // recent tail when the model has a small context window.
+  if (window <= 32_768) {
+    return {
+      reserveTokens: Math.floor(window / 2),
+      keepRecentTokens: Math.max(1, Math.min(1_024, Math.floor(window / 16)))
+    };
+  }
   const reserveTokens = Math.min(window - 1, Math.max(32_768, Math.floor(window / 4)));
   return {
     reserveTokens,
